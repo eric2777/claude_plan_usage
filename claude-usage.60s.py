@@ -11,11 +11,14 @@ import subprocess
 import sys
 import urllib.request
 import urllib.error
-from datetime import datetime
+from datetime import datetime, timedelta
 
 CONFIG_PATH = os.path.expanduser("~/.config/claude-usage/config.json")
 CACHE_PATH = os.path.expanduser("~/.cache/claude-usage/result.json")
+HISTORY_PATH = os.path.expanduser("~/.cache/claude-usage/history.json")
 DEFAULT_CONFIG = {"session_key": "", "interval_s": 60, "alert_pct": 80}
+HISTORY_WINDOW_MIN = 15
+HISTORY_MAX_AGE_MIN = 30
 
 
 def load_config(path=CONFIG_PATH):
@@ -52,6 +55,68 @@ def save_cache(data, path=CACHE_PATH):
 def cache_age_seconds(cache):
     ts = datetime.fromisoformat(cache["timestamp"])
     return (datetime.now() - ts).total_seconds()
+
+
+def load_history(path=HISTORY_PATH):
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def save_history(history, path=HISTORY_PATH):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(history, f, indent=2)
+
+
+def append_history(session_pct, history, max_age_min=HISTORY_MAX_AGE_MIN):
+    now = datetime.now()
+    cutoff = now - timedelta(minutes=max_age_min)
+    history = [
+        e for e in history
+        if datetime.fromisoformat(e["timestamp"]) >= cutoff
+    ]
+    history.append({"timestamp": now.isoformat(), "session_pct": session_pct})
+    return history
+
+
+def calc_eta_minutes(history, current_pct, window_min=HISTORY_WINDOW_MIN):
+    now = datetime.now()
+    cutoff = now - timedelta(minutes=window_min)
+    window = [
+        e for e in history
+        if datetime.fromisoformat(e["timestamp"]) >= cutoff
+    ]
+    if len(window) < 2:
+        return None
+    oldest = window[0]
+    elapsed_min = (now - datetime.fromisoformat(oldest["timestamp"])).total_seconds() / 60
+    if elapsed_min < 1:
+        return None
+    rate = (current_pct - oldest["session_pct"]) / elapsed_min
+    if rate <= 0:
+        return None
+    remaining = 100 - current_pct
+    if remaining <= 0:
+        return None
+    return remaining / rate
+
+
+def format_eta_line(eta_minutes, session_reset_at):
+    if session_reset_at is not None:
+        reset = datetime.fromisoformat(session_reset_at.replace("Z", "+00:00"))
+        reset_remaining_min = (reset - datetime.now(reset.tzinfo)).total_seconds() / 60
+        if eta_minutes > reset_remaining_min:
+            return None
+    if eta_minutes < 60:
+        return f"→ 100% in ~{int(eta_minutes)}m (est.)"
+    hours = int(eta_minutes // 60)
+    mins = int(eta_minutes % 60)
+    return f"→ 100% in ~{hours}h {mins}m (est.)"
 
 
 ORGS_URL = "https://claude.ai/api/organizations"
@@ -108,12 +173,14 @@ def format_reset_time(reset_iso):
     return f"in {minutes}m"
 
 
-def format_dropdown(data, config, script_path, stale_seconds=None):
+def format_dropdown(data, config, script_path, stale_seconds=None, eta_line=None):
     session_reset = format_reset_time(data["session_reset_at"])
     weekly_reset = format_reset_time(data["weekly_reset_at"])
 
-    lines = [
-        f"Session: {data['session_pct']}%  (resets {session_reset})",
+    lines = [f"Session: {data['session_pct']}%  (resets {session_reset})"]
+    if eta_line is not None:
+        lines.append(eta_line)
+    lines += [
         f"Weekly:  {data['weekly_pct']}%  (resets {weekly_reset})",
     ]
     if stale_seconds is not None:
@@ -128,6 +195,19 @@ def format_dropdown(data, config, script_path, stale_seconds=None):
         f'-- 🔔 Alert at: {config["alert_pct"]}% → change | bash="{script_path}" param1=set_threshold terminal=false refresh=true',
         "---",
         "↻ Refresh now | refresh=true",
+        "---",
+        "About",
+        "-- Claude Usage Widget v1.0",
+        "-- Tracks claude.ai plan consumption",
+        "-- Session = 5-hour rolling window",
+        "-- ETA based on last 15min rate",
+        "---",
+        "How to get your Session Key",
+        "-- 1. Open claude.ai in your browser",
+        "-- 2. Open DevTools (F12 or Cmd+Opt+I)",
+        "-- 3. Go to Application → Cookies → claude.ai",
+        "-- 4. Copy the value of 'sessionKey'",
+        "-- 5. Paste it via ⚙ Settings → Set Session Key",
     ]
     return "\n".join(lines)
 
@@ -229,6 +309,9 @@ def main():
         try:
             data = fetch_usage(config["session_key"])
             save_cache(data)
+            history = load_history()
+            history = append_history(data["session_pct"], history)
+            save_history(history)
         except Exception:
             if cache:
                 data = cache["data"]
@@ -241,9 +324,13 @@ def main():
         print(f'🔑 Set Session Key... | bash="{script_path}" param1=set_session_key terminal=false refresh=true')
         return
 
+    history = load_history()
+    eta_min = calc_eta_minutes(history, data["session_pct"])
+    eta_line = format_eta_line(eta_min, data["session_reset_at"]) if eta_min is not None else None
+
     print(format_menu_bar(data["session_pct"], config["alert_pct"]))
     print("---")
-    print(format_dropdown(data, config, script_path, stale_seconds))
+    print(format_dropdown(data, config, script_path, stale_seconds, eta_line))
 
 
 if __name__ == "__main__":

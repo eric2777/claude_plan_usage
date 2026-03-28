@@ -225,3 +225,169 @@ def test_handle_set_threshold_saves_valid_value():
         with patch.object(m, "run_osascript_dialog", return_value="90"):
             m.handle_set_threshold(path)
         assert m.load_config(path)["alert_pct"] == 90
+
+
+# --- History tests ---
+
+def test_load_history_returns_empty_when_missing():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "history.json")
+        assert m.load_history(path) == []
+
+def test_load_history_returns_empty_on_corrupt_file():
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        f.write("not json{{{")
+        path = f.name
+    try:
+        assert m.load_history(path) == []
+    finally:
+        os.unlink(path)
+
+def test_save_and_load_history():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "history.json")
+        entries = [{"timestamp": datetime.now().isoformat(), "session_pct": 40}]
+        m.save_history(entries, path)
+        loaded = m.load_history(path)
+        assert len(loaded) == 1
+        assert loaded[0]["session_pct"] == 40
+
+def test_append_history_adds_entry():
+    history = []
+    result = m.append_history(30, history)
+    assert len(result) == 1
+    assert result[0]["session_pct"] == 30
+    assert "timestamp" in result[0]
+
+def test_append_history_prunes_old_entries():
+    from datetime import timedelta
+    old_ts = (datetime.now() - timedelta(minutes=35)).isoformat()
+    recent_ts = (datetime.now() - timedelta(minutes=5)).isoformat()
+    history = [
+        {"timestamp": old_ts, "session_pct": 10},
+        {"timestamp": recent_ts, "session_pct": 20},
+    ]
+    result = m.append_history(25, history, max_age_min=30)
+    assert len(result) == 2  # old entry pruned, recent kept, new added
+    assert result[0]["session_pct"] == 20
+    assert result[1]["session_pct"] == 25
+
+def test_append_history_keeps_recent_entries():
+    from datetime import timedelta
+    history = [
+        {"timestamp": (datetime.now() - timedelta(minutes=10)).isoformat(), "session_pct": 15},
+    ]
+    result = m.append_history(20, history, max_age_min=30)
+    assert len(result) == 2
+
+
+# --- calc_eta_minutes tests ---
+
+def test_calc_eta_returns_none_insufficient_data():
+    history = [{"timestamp": datetime.now().isoformat(), "session_pct": 30}]
+    assert m.calc_eta_minutes(history, 30) is None
+
+def test_calc_eta_returns_none_empty_history():
+    assert m.calc_eta_minutes([], 50) is None
+
+def test_calc_eta_returns_none_when_rate_zero():
+    from datetime import timedelta
+    history = [
+        {"timestamp": (datetime.now() - timedelta(minutes=10)).isoformat(), "session_pct": 30},
+        {"timestamp": (datetime.now() - timedelta(minutes=5)).isoformat(), "session_pct": 30},
+    ]
+    assert m.calc_eta_minutes(history, 30) is None
+
+def test_calc_eta_returns_none_when_rate_negative():
+    from datetime import timedelta
+    history = [
+        {"timestamp": (datetime.now() - timedelta(minutes=10)).isoformat(), "session_pct": 40},
+        {"timestamp": (datetime.now() - timedelta(minutes=2)).isoformat(), "session_pct": 35},
+    ]
+    assert m.calc_eta_minutes(history, 35) is None
+
+def test_calc_eta_calculates_correctly():
+    from datetime import timedelta
+    # 10 pct increase over 10 minutes = 1 pct/min; 50 pct remaining → 50 min ETA
+    history = [
+        {"timestamp": (datetime.now() - timedelta(minutes=10)).isoformat(), "session_pct": 40},
+        {"timestamp": (datetime.now() - timedelta(minutes=5)).isoformat(), "session_pct": 45},
+    ]
+    eta = m.calc_eta_minutes(history, 50)
+    assert eta is not None
+    assert 45 <= eta <= 55  # ~50 min, allow small timing variance
+
+def test_calc_eta_returns_none_at_100pct():
+    from datetime import timedelta
+    history = [
+        {"timestamp": (datetime.now() - timedelta(minutes=10)).isoformat(), "session_pct": 90},
+        {"timestamp": (datetime.now() - timedelta(minutes=5)).isoformat(), "session_pct": 95},
+    ]
+    assert m.calc_eta_minutes(history, 100) is None
+
+def test_calc_eta_ignores_entries_outside_window():
+    from datetime import timedelta
+    # Entry at -20min is outside the 15-min window → only 1 entry in window → None
+    history = [
+        {"timestamp": (datetime.now() - timedelta(minutes=20)).isoformat(), "session_pct": 10},
+        {"timestamp": (datetime.now() - timedelta(minutes=5)).isoformat(), "session_pct": 20},
+    ]
+    # window_min=15: the first entry (-20min) is excluded, only second entry remains → < 2 entries
+    assert m.calc_eta_minutes(history, 20, window_min=15) is None
+
+
+# --- format_eta_line tests ---
+
+def test_format_eta_line_minutes():
+    result = m.format_eta_line(23.0, None)
+    assert result == "→ 100% in ~23m (est.)"
+
+def test_format_eta_line_hours_and_minutes():
+    result = m.format_eta_line(90.0, None)
+    assert result == "→ 100% in ~1h 30m (est.)"
+
+def test_format_eta_line_returns_none_if_after_reset():
+    from datetime import timedelta
+    # Reset is in 10 min, but ETA is 30 min away → None
+    reset_time = (datetime.now(tz=__import__("datetime").timezone.utc) + timedelta(minutes=10)).isoformat()
+    result = m.format_eta_line(30.0, reset_time)
+    assert result is None
+
+def test_format_eta_line_shows_when_before_reset():
+    from datetime import timedelta
+    # Reset is in 60 min, ETA is 30 min → show ETA
+    reset_time = (datetime.now(tz=__import__("datetime").timezone.utc) + timedelta(minutes=60)).isoformat()
+    result = m.format_eta_line(30.0, reset_time)
+    assert result == "→ 100% in ~30m (est.)"
+
+
+# --- format_dropdown with eta_line tests ---
+
+def test_format_dropdown_shows_eta_line():
+    from datetime import timedelta
+    data = {
+        "session_pct": 50,
+        "weekly_pct": 20,
+        "session_reset_at": (datetime.now() + timedelta(hours=1)).isoformat(),
+        "weekly_reset_at": (datetime.now() + timedelta(days=1)).isoformat(),
+    }
+    config = {"interval_s": 60, "alert_pct": 80, "session_key": "sk-ant-sid01-test"}
+    result = m.format_dropdown(data, config, "/path/to/script.py", eta_line="→ 100% in ~25m (est.)")
+    assert "→ 100% in ~25m (est.)" in result
+    # ETA line should appear after Session line
+    session_pos = result.index("Session:")
+    eta_pos = result.index("→ 100%")
+    weekly_pos = result.index("Weekly:")
+    assert session_pos < eta_pos < weekly_pos
+
+def test_format_dropdown_no_eta_when_none():
+    from datetime import timedelta
+    data = {
+        "session_pct": 50,
+        "weekly_pct": 20,
+        "session_reset_at": (datetime.now() + timedelta(hours=1)).isoformat(),
+        "weekly_reset_at": (datetime.now() + timedelta(days=1)).isoformat(),
+    }
+    config = {"interval_s": 60, "alert_pct": 80, "session_key": "sk-ant-sid01-test"}
+    result = m.format_dropdown(data, config, "/path/to/script.py")
+    assert "→ 100%" not in result
