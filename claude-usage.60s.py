@@ -34,8 +34,11 @@ def save_config(config, path=CONFIG_PATH):
 def load_cache(path=CACHE_PATH):
     if not os.path.exists(path):
         return None
-    with open(path) as f:
-        return json.load(f)
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError, KeyError):
+        return None
 
 
 def save_cache(data, path=CACHE_PATH):

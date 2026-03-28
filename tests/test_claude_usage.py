@@ -42,8 +42,6 @@ def test_save_and_reload_config():
         assert config["interval_s"] == 120
         assert config["alert_pct"] == 75
 
-import time
-
 def test_load_cache_returns_none_when_missing():
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, "nonexistent.json")
