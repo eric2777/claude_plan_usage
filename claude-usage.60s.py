@@ -31,5 +31,24 @@ def save_config(config, path=CONFIG_PATH):
         json.dump(config, f, indent=2)
 
 
+def load_cache(path=CACHE_PATH):
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+def save_cache(data, path=CACHE_PATH):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    entry = {"timestamp": datetime.now().isoformat(), "data": data}
+    with open(path, "w") as f:
+        json.dump(entry, f, indent=2)
+
+
+def cache_age_seconds(cache):
+    ts = datetime.fromisoformat(cache["timestamp"])
+    return (datetime.now() - ts).total_seconds()
+
+
 if __name__ == "__main__":
     pass

@@ -41,3 +41,32 @@ def test_save_and_reload_config():
         assert config["session_key"] == "sk-ant-sid01-abc"
         assert config["interval_s"] == 120
         assert config["alert_pct"] == 75
+
+import time
+
+def test_load_cache_returns_none_when_missing():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "nonexistent.json")
+        assert m.load_cache(path) is None
+
+def test_save_and_load_cache():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "result.json")
+        data = {"session_pct": 39, "weekly_pct": 15,
+                "session_reset_at": "2026-03-28T14:00:00",
+                "weekly_reset_at": "2026-03-29T09:59:00"}
+        m.save_cache(data, path)
+        cache = m.load_cache(path)
+        assert cache["data"]["session_pct"] == 39
+        assert "timestamp" in cache
+
+def test_cache_age_seconds():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "result.json")
+        data = {"session_pct": 50, "weekly_pct": 10,
+                "session_reset_at": "2026-03-28T14:00:00",
+                "weekly_reset_at": "2026-03-29T09:59:00"}
+        m.save_cache(data, path)
+        cache = m.load_cache(path)
+        age = m.cache_age_seconds(cache)
+        assert 0 <= age < 2  # written just now
