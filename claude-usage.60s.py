@@ -53,5 +53,37 @@ def cache_age_seconds(cache):
     return (datetime.now() - ts).total_seconds()
 
 
+ORGS_URL = "https://claude.ai/api/organizations"
+
+
+def _make_request(url, session_key):
+    req = urllib.request.Request(url)
+    req.add_header("Cookie", f"sessionKey={session_key}")
+    req.add_header("anthropic-client-platform", "web_claude_ai")
+    req.add_header("Content-Type", "application/json")
+    return req
+
+
+def fetch_usage(session_key):
+    # Step 1: get org UUID
+    with urllib.request.urlopen(_make_request(ORGS_URL, session_key), timeout=10) as resp:
+        orgs = json.loads(resp.read())
+    org_id = orgs[0]["uuid"]
+
+    # Step 2: get usage
+    usage_url = f"https://claude.ai/api/organizations/{org_id}/usage"
+    with urllib.request.urlopen(_make_request(usage_url, session_key), timeout=10) as resp:
+        raw = json.loads(resp.read())
+
+    five_hour = raw.get("five_hour") or {}
+    seven_day = raw.get("seven_day") or {}
+    return {
+        "session_pct": int(five_hour.get("utilization", 0)),
+        "session_reset_at": five_hour.get("resets_at"),
+        "weekly_pct": int(seven_day.get("utilization", 0)),
+        "weekly_reset_at": seven_day.get("resets_at"),
+    }
+
+
 if __name__ == "__main__":
     pass
