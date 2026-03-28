@@ -132,5 +132,64 @@ def format_dropdown(data, config, script_path, stale_seconds=None):
     return "\n".join(lines)
 
 
+def run_osascript_dialog(prompt, default=""):
+    script = (
+        f'display dialog "{prompt}" '
+        f'default answer "{default}" '
+        f'with title "Claude Usage" '
+        f'buttons {{"Cancel", "OK"}} default button "OK"'
+    )
+    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    for part in result.stdout.strip().split(", "):
+        if part.startswith("text returned:"):
+            return part[len("text returned:"):]
+    return None
+
+
+def handle_set_session_key(config_path=CONFIG_PATH):
+    value = run_osascript_dialog(
+        "Paste your sessionKey from claude.ai cookies (starts with sk-ant-sid01-):",
+        "sk-ant-sid01-..."
+    )
+    if value and value.strip().startswith("sk-"):
+        config = load_config(config_path)
+        config["session_key"] = value.strip()
+        save_config(config, config_path)
+
+
+def handle_set_interval(config_path=CONFIG_PATH):
+    config = load_config(config_path)
+    value = run_osascript_dialog(
+        "Refresh interval in seconds (30–3600):",
+        str(config["interval_s"])
+    )
+    if value:
+        try:
+            seconds = int(value.strip())
+            if 30 <= seconds <= 3600:
+                config["interval_s"] = seconds
+                save_config(config, config_path)
+        except ValueError:
+            pass
+
+
+def handle_set_threshold(config_path=CONFIG_PATH):
+    config = load_config(config_path)
+    value = run_osascript_dialog(
+        "Alert when session usage reaches (1–100%):",
+        str(config["alert_pct"])
+    )
+    if value:
+        try:
+            pct = int(value.strip())
+            if 1 <= pct <= 100:
+                config["alert_pct"] = pct
+                save_config(config, config_path)
+        except ValueError:
+            pass
+
+
 if __name__ == "__main__":
     pass

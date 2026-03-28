@@ -178,3 +178,50 @@ def test_format_dropdown_shows_staleness():
     config = {"interval_s": 60, "alert_pct": 80, "session_key": "sk-ant-sid01-test"}
     result = m.format_dropdown(data, config, "/path/to/script.py", stale_seconds=180)
     assert "last updated 3m ago" in result
+
+
+def test_handle_set_session_key_saves_valid_key():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "config.json")
+        with patch.object(m, "run_osascript_dialog", return_value="sk-ant-sid01-abc123"):
+            m.handle_set_session_key(path)
+        config = m.load_config(path)
+        assert config["session_key"] == "sk-ant-sid01-abc123"
+
+def test_handle_set_session_key_ignores_invalid_key():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "config.json")
+        with patch.object(m, "run_osascript_dialog", return_value="not-a-valid-key"):
+            m.handle_set_session_key(path)
+        assert not os.path.exists(path)
+
+def test_handle_set_session_key_ignores_cancel():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "config.json")
+        with patch.object(m, "run_osascript_dialog", return_value=None):
+            m.handle_set_session_key(path)
+        assert not os.path.exists(path)
+
+def test_handle_set_interval_saves_valid_value():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "config.json")
+        m.save_config({"session_key": "sk-ant-sid01-x", "interval_s": 60, "alert_pct": 80}, path)
+        with patch.object(m, "run_osascript_dialog", return_value="120"):
+            m.handle_set_interval(path)
+        assert m.load_config(path)["interval_s"] == 120
+
+def test_handle_set_interval_rejects_out_of_range():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "config.json")
+        m.save_config({"session_key": "sk-ant-sid01-x", "interval_s": 60, "alert_pct": 80}, path)
+        with patch.object(m, "run_osascript_dialog", return_value="5"):  # below 30
+            m.handle_set_interval(path)
+        assert m.load_config(path)["interval_s"] == 60  # unchanged
+
+def test_handle_set_threshold_saves_valid_value():
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "config.json")
+        m.save_config({"session_key": "sk-ant-sid01-x", "interval_s": 60, "alert_pct": 80}, path)
+        with patch.object(m, "run_osascript_dialog", return_value="90"):
+            m.handle_set_threshold(path)
+        assert m.load_config(path)["alert_pct"] == 90
