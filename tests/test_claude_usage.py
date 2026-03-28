@@ -72,48 +72,53 @@ def test_cache_age_seconds():
 
 
 from unittest.mock import patch, MagicMock
-import urllib.error
 
-def _make_mock_response(body_dict):
-    body = json.dumps(body_dict).encode()
-    mock_resp = MagicMock()
-    mock_resp.read.return_value = body
-    mock_resp.__enter__ = lambda s: s
-    mock_resp.__exit__ = MagicMock(return_value=False)
-    return mock_resp
 
 def test_fetch_usage_returns_normalized_data():
-    orgs_resp = _make_mock_response([{"uuid": "org-123", "name": "Test"}])
-    usage_resp = _make_mock_response({
-        "five_hour": {"utilization": 39.0, "resets_at": "2026-03-28T14:00:00Z"},
-        "seven_day": {"utilization": 15.0, "resets_at": "2026-03-29T09:59:00Z"},
-        "seven_day_sonnet": None,
-    })
-    with patch("urllib.request.urlopen", side_effect=[orgs_resp, usage_resp]):
+    expected = {
+        "session_pct": 39,
+        "weekly_pct": 15,
+        "session_reset_at": "2026-03-28T14:00:00Z",
+        "weekly_reset_at": "2026-03-29T09:59:00Z",
+    }
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = json.dumps(expected)
+    with patch.object(m, "_ensure_fetch_binary"), \
+         patch("subprocess.run", return_value=mock_result):
         data = m.fetch_usage("sk-ant-sid01-test")
     assert data["session_pct"] == 39
     assert data["weekly_pct"] == 15
     assert data["session_reset_at"] == "2026-03-28T14:00:00Z"
     assert data["weekly_reset_at"] == "2026-03-29T09:59:00Z"
 
-def test_fetch_usage_raises_on_http_error():
-    with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(
-        url=None, code=403, msg="Forbidden", hdrs=None, fp=None
-    )):
+
+def test_fetch_usage_raises_on_binary_failure():
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stderr = "Failed to fetch org"
+    with patch.object(m, "_ensure_fetch_binary"), \
+         patch("subprocess.run", return_value=mock_result):
         try:
             m.fetch_usage("sk-ant-sid01-bad")
             assert False, "should have raised"
-        except urllib.error.HTTPError as e:
-            assert e.code == 403
+        except RuntimeError as e:
+            assert "fetch binary failed" in str(e)
+
 
 def test_fetch_usage_handles_null_weekly():
     """seven_day can be null when weekly limit is not yet reached"""
-    orgs_resp = _make_mock_response([{"uuid": "org-123"}])
-    usage_resp = _make_mock_response({
-        "five_hour": {"utilization": 10.0, "resets_at": "2026-03-28T14:00:00Z"},
-        "seven_day": None,
-    })
-    with patch("urllib.request.urlopen", side_effect=[orgs_resp, usage_resp]):
+    expected = {
+        "session_pct": 10,
+        "weekly_pct": 0,
+        "session_reset_at": "2026-03-28T14:00:00Z",
+        "weekly_reset_at": None,
+    }
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = json.dumps(expected)
+    with patch.object(m, "_ensure_fetch_binary"), \
+         patch("subprocess.run", return_value=mock_result):
         data = m.fetch_usage("sk-ant-sid01-test")
     assert data["session_pct"] == 10
     assert data["weekly_pct"] == 0
