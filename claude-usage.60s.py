@@ -191,5 +191,60 @@ def handle_set_threshold(config_path=CONFIG_PATH):
             pass
 
 
+ACTIONS = {
+    "set_session_key": handle_set_session_key,
+    "set_interval": handle_set_interval,
+    "set_threshold": handle_set_threshold,
+}
+
+
+def main():
+    script_path = os.path.abspath(sys.argv[0])
+
+    # Handle settings actions dispatched from SwiftBar menu items
+    if len(sys.argv) > 1 and sys.argv[1] in ACTIONS:
+        ACTIONS[sys.argv[1]]()
+        return
+
+    config = load_config()
+
+    if not config.get("session_key"):
+        print("Claude ⚙ setup")
+        print("---")
+        print(f"🔑 Set Session Key... | bash={script_path} param1=set_session_key terminal=false refresh=true")
+        print("---")
+        print("How to get your session key:")
+        print("1. Open claude.ai in your browser")
+        print("2. Open DevTools (F12) → Application → Cookies → claude.ai")
+        print("3. Copy the value of the 'sessionKey' cookie")
+        return
+
+    cache = load_cache()
+    stale_seconds = None
+    data = None
+
+    if cache and cache_age_seconds(cache) < config["interval_s"]:
+        data = cache["data"]
+    else:
+        try:
+            data = fetch_usage(config["session_key"])
+            save_cache(data)
+        except Exception:
+            if cache:
+                data = cache["data"]
+                stale_seconds = cache_age_seconds(cache)
+
+    if data is None:
+        print("Claude ?")
+        print("---")
+        print("Could not fetch usage data")
+        print(f"🔑 Set Session Key... | bash={script_path} param1=set_session_key terminal=false refresh=true")
+        return
+
+    print(format_menu_bar(data["session_pct"], config["alert_pct"]))
+    print("---")
+    print(format_dropdown(data, config, script_path, stale_seconds))
+
+
 if __name__ == "__main__":
-    pass
+    main()
