@@ -60,7 +60,6 @@ def _make_request(url, session_key):
     req = urllib.request.Request(url)
     req.add_header("Cookie", f"sessionKey={session_key}")
     req.add_header("anthropic-client-platform", "web_claude_ai")
-    req.add_header("Content-Type", "application/json")
     return req
 
 
