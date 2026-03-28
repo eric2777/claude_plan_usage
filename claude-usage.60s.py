@@ -84,5 +84,53 @@ def fetch_usage(session_key):
     }
 
 
+def format_menu_bar(session_pct, alert_pct):
+    if session_pct >= alert_pct:
+        return f"Claude ⚠️ {session_pct}% | color=red"
+    return f"Claude {session_pct}%"
+
+
+def format_reset_time(reset_iso):
+    if reset_iso is None:
+        return "N/A"
+    reset = datetime.fromisoformat(reset_iso.replace("Z", "+00:00"))
+    now = datetime.now(reset.tzinfo)
+    delta = reset - now
+    total_seconds = delta.total_seconds()
+    if total_seconds <= 0:
+        return "soon"
+    import math
+    total_minutes = math.ceil(total_seconds / 60)
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+    if hours > 0:
+        return f"in {hours}h {minutes}m"
+    return f"in {minutes}m"
+
+
+def format_dropdown(data, config, script_path, stale_seconds=None):
+    session_reset = format_reset_time(data["session_reset_at"])
+    weekly_reset = format_reset_time(data["weekly_reset_at"])
+
+    lines = [
+        f"Session: {data['session_pct']}%  (resets {session_reset})",
+        f"Weekly:  {data['weekly_pct']}%  (resets {weekly_reset})",
+    ]
+    if stale_seconds is not None:
+        lines.append(f"⚠ last updated {int(stale_seconds // 60)}m ago")
+    else:
+        lines.append("Last updated: just now")
+    lines += [
+        "---",
+        "⚙ Settings",
+        f"-- 🔑 Set Session Key... | bash={script_path} param1=set_session_key terminal=false refresh=true",
+        f"-- ⏱ Refresh: {config['interval_s']}s → change | bash={script_path} param1=set_interval terminal=false refresh=true",
+        f"-- 🔔 Alert at: {config['alert_pct']}% → change | bash={script_path} param1=set_threshold terminal=false refresh=true",
+        "---",
+        "↻ Refresh now | refresh=true",
+    ]
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     pass

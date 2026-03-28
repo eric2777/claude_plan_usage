@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 import tempfile
+from datetime import datetime
 
 def load_module():
     script_path = os.path.join(os.path.dirname(__file__), "..", "claude-usage.60s.py")
@@ -117,3 +118,63 @@ def test_fetch_usage_handles_null_weekly():
     assert data["session_pct"] == 10
     assert data["weekly_pct"] == 0
     assert data["weekly_reset_at"] is None
+
+
+def test_format_menu_bar_normal():
+    result = m.format_menu_bar(39, 80)
+    assert result == "Claude 39%"
+
+def test_format_menu_bar_at_threshold():
+    result = m.format_menu_bar(80, 80)
+    assert "⚠️" in result
+    assert "80%" in result
+    assert "color=red" in result
+
+def test_format_menu_bar_above_threshold():
+    result = m.format_menu_bar(95, 80)
+    assert "⚠️" in result
+    assert "color=red" in result
+
+def test_format_reset_time_hours():
+    from datetime import timedelta
+    future = (datetime.now() + timedelta(hours=1, minutes=48)).isoformat()
+    result = m.format_reset_time(future)
+    assert "1h" in result and "48m" in result
+
+def test_format_reset_time_minutes_only():
+    from datetime import timedelta
+    future = (datetime.now() + timedelta(minutes=23)).isoformat()
+    result = m.format_reset_time(future)
+    assert result == "in 23m"
+
+def test_format_reset_time_none():
+    result = m.format_reset_time(None)
+    assert result == "N/A"
+
+def test_format_dropdown_contains_key_info():
+    from datetime import timedelta
+    data = {
+        "session_pct": 39,
+        "weekly_pct": 15,
+        "session_reset_at": (datetime.now() + timedelta(hours=1, minutes=48)).isoformat(),
+        "weekly_reset_at": (datetime.now() + timedelta(days=1)).isoformat(),
+    }
+    config = {"interval_s": 60, "alert_pct": 80, "session_key": "sk-ant-sid01-test"}
+    result = m.format_dropdown(data, config, "/path/to/script.py")
+    assert "Session: 39%" in result
+    assert "Weekly:  15%" in result
+    assert "Set Session Key" in result
+    assert "Refresh: 60s" in result
+    assert "Alert at: 80%" in result
+
+def test_format_dropdown_shows_staleness():
+    from datetime import timedelta
+    data = {
+        "session_pct": 50,
+        "weekly_pct": 20,
+        "session_reset_at": (datetime.now() + timedelta(hours=1)).isoformat(),
+        "weekly_reset_at": (datetime.now() + timedelta(days=1)).isoformat(),
+    }
+    config = {"interval_s": 60, "alert_pct": 80, "session_key": "sk-ant-sid01-test"}
+    result = m.format_dropdown(data, config, "/path/to/script.py", stale_seconds=180)
+    assert "last updated 3m ago" in result
