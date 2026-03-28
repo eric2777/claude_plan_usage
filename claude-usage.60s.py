@@ -5,6 +5,7 @@
 # <swiftbar.desc>Shows Claude plan session usage % in the menu bar</swiftbar.desc>
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -99,7 +100,6 @@ def format_reset_time(reset_iso):
     total_seconds = delta.total_seconds()
     if total_seconds <= 0:
         return "soon"
-    import math
     total_minutes = math.ceil(total_seconds / 60)
     hours = total_minutes // 60
     minutes = total_minutes % 60
