@@ -123,9 +123,9 @@ def format_dropdown(data, config, script_path, stale_seconds=None):
     lines += [
         "---",
         "⚙ Settings",
-        f"-- 🔑 Set Session Key... | bash={script_path} param1=set_session_key terminal=false refresh=true",
-        f"-- ⏱ Refresh: {config['interval_s']}s → change | bash={script_path} param1=set_interval terminal=false refresh=true",
-        f"-- 🔔 Alert at: {config['alert_pct']}% → change | bash={script_path} param1=set_threshold terminal=false refresh=true",
+        f'-- 🔑 Set Session Key... | bash="{script_path}" param1=set_session_key terminal=false refresh=true',
+        f'-- ⏱ Refresh: {config["interval_s"]}s → change | bash="{script_path}" param1=set_interval terminal=false refresh=true',
+        f'-- 🔔 Alert at: {config["alert_pct"]}% → change | bash="{script_path}" param1=set_threshold terminal=false refresh=true',
         "---",
         "↻ Refresh now | refresh=true",
     ]
@@ -211,7 +211,7 @@ def main():
     if not config.get("session_key"):
         print("Claude ⚙ setup")
         print("---")
-        print(f"🔑 Set Session Key... | bash={script_path} param1=set_session_key terminal=false refresh=true")
+        print(f'🔑 Set Session Key... | bash="{script_path}" param1=set_session_key terminal=false refresh=true')
         print("---")
         print("How to get your session key:")
         print("1. Open claude.ai in your browser")
@@ -238,7 +238,7 @@ def main():
         print("Claude ?")
         print("---")
         print("Could not fetch usage data")
-        print(f"🔑 Set Session Key... | bash={script_path} param1=set_session_key terminal=false refresh=true")
+        print(f'🔑 Set Session Key... | bash="{script_path}" param1=set_session_key terminal=false refresh=true')
         return
 
     print(format_menu_bar(data["session_pct"], config["alert_pct"]))
