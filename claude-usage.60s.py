@@ -212,9 +212,14 @@ def format_dropdown(data, config, script_path, stale_seconds=None, eta_line=None
     return "\n".join(lines)
 
 
-def run_osascript_dialog(prompt, default=""):
+def run_osascript_dialog(prompt, default="", width_chars=None):
+    if width_chars:
+        ruler = "─" * width_chars
+        prompt_expr = f'"{prompt}" & return & "{ruler}"'
+    else:
+        prompt_expr = f'"{prompt}"'
     script = (
-        f'display dialog "{prompt}" '
+        f'display dialog {prompt_expr} '
         f'default answer "{default}" '
         f'with title "Claude Usage" '
         f'buttons {{"Cancel", "OK"}} default button "OK"'
@@ -231,7 +236,8 @@ def run_osascript_dialog(prompt, default=""):
 def handle_set_session_key(config_path=CONFIG_PATH):
     value = run_osascript_dialog(
         "Paste your sessionKey from claude.ai cookies (starts with sk-ant-sid01-):",
-        "sk-ant-sid01-..."
+        "",
+        width_chars=120,
     )
     if value and value.strip().startswith("sk-"):
         config = load_config(config_path)

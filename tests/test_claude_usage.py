@@ -183,10 +183,13 @@ def test_format_dropdown_shows_staleness():
 def test_handle_set_session_key_saves_valid_key():
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, "config.json")
-        with patch.object(m, "run_osascript_dialog", return_value="sk-ant-sid01-abc123"):
+        with patch.object(m, "run_osascript_dialog", return_value="sk-ant-sid01-abc123") as mock_dialog:
             m.handle_set_session_key(path)
         config = m.load_config(path)
         assert config["session_key"] == "sk-ant-sid01-abc123"
+        # Verify width_chars is passed to make the field wide enough
+        _, kwargs = mock_dialog.call_args
+        assert kwargs.get("width_chars", 0) >= 100
 
 def test_handle_set_session_key_ignores_invalid_key():
     with tempfile.TemporaryDirectory() as d:
