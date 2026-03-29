@@ -9,12 +9,14 @@ import math
 import os
 import subprocess
 import sys
+import tempfile
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta
 
 CONFIG_PATH = os.path.expanduser("~/.config/claude-usage/config.json")
 CACHE_PATH = os.path.expanduser("~/.cache/claude-usage/result.json")
+FETCH_BINARY = os.path.expanduser("~/.config/claude-usage/fetch")
 HISTORY_PATH = os.path.expanduser("~/.cache/claude-usage/history.json")
 DEFAULT_CONFIG = {"session_key": "", "interval_s": 60, "alert_pct": 80}
 HISTORY_WINDOW_MIN = 15
@@ -107,19 +109,6 @@ def cache_age_seconds(cache):
     return (datetime.now() - ts).total_seconds()
 
 
-<<<<<<< HEAD
-def _ensure_fetch_binary(binary_path=FETCH_BINARY):
-    if os.path.exists(binary_path):
-        return
-    os.makedirs(os.path.dirname(binary_path), exist_ok=True)
-    with tempfile.NamedTemporaryFile(suffix=".swift", mode="w", delete=False) as f:
-        f.write(SWIFT_SOURCE)
-        src_path = f.name
-    try:
-        subprocess.run(["swiftc", src_path, "-o", binary_path], check=True, capture_output=True)
-    finally:
-        os.unlink(src_path)
-=======
 def load_history(path=HISTORY_PATH):
     if not os.path.exists(path):
         return []
@@ -182,8 +171,17 @@ def format_eta_line(eta_minutes, session_reset_at):
     return f"→ 100% in ~{hours}h {mins}m (est.)"
 
 
-ORGS_URL = "https://claude.ai/api/organizations"
->>>>>>> claude/admiring-lumiere
+def _ensure_fetch_binary(binary_path=FETCH_BINARY):
+    if os.path.exists(binary_path):
+        return
+    os.makedirs(os.path.dirname(binary_path), exist_ok=True)
+    with tempfile.NamedTemporaryFile(suffix=".swift", mode="w", delete=False) as f:
+        f.write(SWIFT_SOURCE)
+        src_path = f.name
+    try:
+        subprocess.run(["swiftc", src_path, "-o", binary_path], check=True, capture_output=True)
+    finally:
+        os.unlink(src_path)
 
 
 def fetch_usage(session_key, binary_path=FETCH_BINARY):
@@ -285,7 +283,7 @@ def handle_set_session_key(config_path=CONFIG_PATH):
     value = run_osascript_dialog(
         "Paste your sessionKey from claude.ai cookies (starts with sk-ant-sid01-):",
         "",
-        width_chars=120,
+        width_chars=150,
     )
     if value and value.strip().startswith("sk-"):
         config = load_config(config_path)
