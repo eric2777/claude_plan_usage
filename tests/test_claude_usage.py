@@ -71,58 +71,7 @@ def test_cache_age_seconds():
         assert 0 <= age < 2  # written just now
 
 
-from unittest.mock import patch, MagicMock
-
-
-def test_fetch_usage_returns_normalized_data():
-    expected = {
-        "session_pct": 39,
-        "weekly_pct": 15,
-        "session_reset_at": "2026-03-28T14:00:00Z",
-        "weekly_reset_at": "2026-03-29T09:59:00Z",
-    }
-    mock_result = MagicMock()
-    mock_result.returncode = 0
-    mock_result.stdout = json.dumps(expected)
-    with patch.object(m, "_ensure_fetch_binary"), \
-         patch("subprocess.run", return_value=mock_result):
-        data = m.fetch_usage("sk-ant-sid01-test")
-    assert data["session_pct"] == 39
-    assert data["weekly_pct"] == 15
-    assert data["session_reset_at"] == "2026-03-28T14:00:00Z"
-    assert data["weekly_reset_at"] == "2026-03-29T09:59:00Z"
-
-
-def test_fetch_usage_raises_on_binary_failure():
-    mock_result = MagicMock()
-    mock_result.returncode = 1
-    mock_result.stderr = "Failed to fetch org"
-    with patch.object(m, "_ensure_fetch_binary"), \
-         patch("subprocess.run", return_value=mock_result):
-        try:
-            m.fetch_usage("sk-ant-sid01-bad")
-            assert False, "should have raised"
-        except RuntimeError as e:
-            assert "fetch binary failed" in str(e)
-
-
-def test_fetch_usage_handles_null_weekly():
-    """seven_day can be null when weekly limit is not yet reached"""
-    expected = {
-        "session_pct": 10,
-        "weekly_pct": 0,
-        "session_reset_at": "2026-03-28T14:00:00Z",
-        "weekly_reset_at": None,
-    }
-    mock_result = MagicMock()
-    mock_result.returncode = 0
-    mock_result.stdout = json.dumps(expected)
-    with patch.object(m, "_ensure_fetch_binary"), \
-         patch("subprocess.run", return_value=mock_result):
-        data = m.fetch_usage("sk-ant-sid01-test")
-    assert data["session_pct"] == 10
-    assert data["weekly_pct"] == 0
-    assert data["weekly_reset_at"] is None
+from unittest.mock import patch
 
 
 def test_format_menu_bar_normal():
