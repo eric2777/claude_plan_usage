@@ -5,8 +5,11 @@ import json
 import os
 from datetime import datetime
 
+from claude_fetch import fetch_usage
+
 CONFIG_PATH = os.path.expanduser("~/.config/claude-usage-tmux/config.json")
 CACHE_PATH = os.path.expanduser("~/.cache/claude-usage-tmux/result.json")
+FETCH_BINARY = os.path.expanduser("~/.config/claude-usage-tmux/fetch")
 DEFAULT_CONFIG = {"session_key": "", "interval_s": 60, "alert_pct": 80}
 
 
@@ -44,3 +47,33 @@ def format_status(session_pct, alert_pct):
     if session_pct >= alert_pct:
         return f"#[fg=red]Claude ⚠️ {session_pct}%#[default]"
     return f"Claude {session_pct}%"
+
+
+def main():
+    config = load_config()
+    if not config.get("session_key"):
+        print("Claude ⚙ setup")
+        return
+
+    cache = load_cache()
+    data = None
+
+    if cache and cache_age_seconds(cache) < config["interval_s"]:
+        data = cache["data"]
+    else:
+        try:
+            data = fetch_usage(config["session_key"], FETCH_BINARY)
+            save_cache(data)
+        except Exception:
+            if cache:
+                data = cache["data"]
+
+    if data is None:
+        print("Claude ?")
+        return
+
+    print(format_status(data["session_pct"], config["alert_pct"]))
+
+
+if __name__ == "__main__":
+    main()

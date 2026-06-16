@@ -2,6 +2,8 @@ import importlib.util
 import json
 import os
 import tempfile
+from datetime import datetime, timedelta
+from unittest.mock import patch
 
 
 def load_module():
@@ -85,3 +87,72 @@ def test_format_status_above_threshold():
     assert "95%" in result
     assert result.startswith("#[fg=red]")
     assert result.endswith("#[default]")
+
+
+def test_main_prints_setup_when_no_session_key(capsys):
+    config = {"session_key": "", "interval_s": 60, "alert_pct": 80}
+    with patch.object(m, "load_config", return_value=config):
+        m.main()
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "Claude ⚙ setup"
+
+
+def test_main_uses_fresh_cache_without_fetching(capsys):
+    config = {"session_key": "sk-ant-sid01-test", "interval_s": 60, "alert_pct": 80}
+    cache = {
+        "timestamp": datetime.now().isoformat(),
+        "data": {"session_pct": 42, "weekly_pct": 10,
+                  "session_reset_at": None, "weekly_reset_at": None},
+    }
+    with patch.object(m, "load_config", return_value=config), \
+         patch.object(m, "load_cache", return_value=cache), \
+         patch.object(m, "fetch_usage") as mock_fetch:
+        m.main()
+    mock_fetch.assert_not_called()
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "Claude 42%"
+
+
+def test_main_fetches_when_cache_stale(capsys):
+    config = {"session_key": "sk-ant-sid01-test", "interval_s": 60, "alert_pct": 80}
+    stale_cache = {
+        "timestamp": (datetime.now() - timedelta(minutes=5)).isoformat(),
+        "data": {"session_pct": 30, "weekly_pct": 5,
+                  "session_reset_at": None, "weekly_reset_at": None},
+    }
+    fresh_data = {"session_pct": 55, "weekly_pct": 12,
+                   "session_reset_at": None, "weekly_reset_at": None}
+    with patch.object(m, "load_config", return_value=config), \
+         patch.object(m, "load_cache", return_value=stale_cache), \
+         patch.object(m, "fetch_usage", return_value=fresh_data) as mock_fetch, \
+         patch.object(m, "save_cache") as mock_save:
+        m.main()
+    mock_fetch.assert_called_once_with("sk-ant-sid01-test", m.FETCH_BINARY)
+    mock_save.assert_called_once_with(fresh_data)
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "Claude 55%"
+
+
+def test_main_falls_back_to_stale_cache_on_fetch_failure(capsys):
+    config = {"session_key": "sk-ant-sid01-test", "interval_s": 60, "alert_pct": 80}
+    stale_cache = {
+        "timestamp": (datetime.now() - timedelta(minutes=5)).isoformat(),
+        "data": {"session_pct": 30, "weekly_pct": 5,
+                  "session_reset_at": None, "weekly_reset_at": None},
+    }
+    with patch.object(m, "load_config", return_value=config), \
+         patch.object(m, "load_cache", return_value=stale_cache), \
+         patch.object(m, "fetch_usage", side_effect=RuntimeError("boom")):
+        m.main()
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "Claude 30%"
+
+
+def test_main_prints_unknown_when_fetch_fails_and_no_cache(capsys):
+    config = {"session_key": "sk-ant-sid01-test", "interval_s": 60, "alert_pct": 80}
+    with patch.object(m, "load_config", return_value=config), \
+         patch.object(m, "load_cache", return_value=None), \
+         patch.object(m, "fetch_usage", side_effect=RuntimeError("boom")):
+        m.main()
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "Claude ?"
