@@ -1,3 +1,4 @@
+# Must be co-located with claude-usage.60s.py and claude-usage-tmux.py (scripts add their dir to sys.path[0]).
 import json
 import os
 import subprocess

@@ -5,7 +5,7 @@ import json
 import os
 from datetime import datetime
 
-from claude_fetch import fetch_usage
+from claude_fetch import fetch_usage  # must sit beside this script
 
 CONFIG_PATH = os.path.expanduser("~/.config/claude-usage-tmux/config.json")
 CACHE_PATH = os.path.expanduser("~/.cache/claude-usage-tmux/result.json")
@@ -27,7 +27,7 @@ def load_cache(path=CACHE_PATH):
     try:
         with open(path) as f:
             return json.load(f)
-    except (json.JSONDecodeError, OSError, KeyError):
+    except (json.JSONDecodeError, OSError):
         return None
 
 

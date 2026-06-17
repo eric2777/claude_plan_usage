@@ -16,7 +16,7 @@ Both scripts share `claude_fetch.py` (the Cloudflare TLS workaround for calling 
 ```bash
 make test      # run pytest
 make run       # run the plugin script directly (prints SwiftBar-formatted stdout)
-make install   # copy plugin to ~/Library/Application Support/SwiftBar/Plugins/
+make install   # copy plugin to ~/swiftbar plugins/
 ```
 
 Run a single test:
@@ -88,5 +88,7 @@ Fully independent of the SwiftBar plugin — separate config, cache, session key
    set -g status-right '#(python3 /absolute/path/to/repo/claude-usage-tmux.py)'
    set -g status-interval 30
    ```
+
+Note: `claude-usage-tmux.py` is run **in-place from the repo directory** (not installed by `make install`). Because tmux invokes it via an absolute path, `claude_fetch.py` is automatically co-located — no install step needed.
 
 **Tests** use the same `importlib` dynamic-loading pattern as `claude-usage.60s.py` (dashes in the filename).
