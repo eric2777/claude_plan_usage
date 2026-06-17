@@ -2,51 +2,91 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What this is
+## Project Overview
 
-A macOS menu bar widget (SwiftBar plugin) that displays Claude plan session and weekly usage % in real time. A single Python script (`claude-usage.60s.py`) is installed into SwiftBar's plugins directory — SwiftBar runs it every 60 seconds and renders its stdout as the menu bar item and dropdown.
+Two independent scripts display Claude plan session usage (%) in real time:
+
+- `claude-usage.60s.py` — a SwiftBar macOS menu bar plugin. SwiftBar runs it every 60 seconds (interval encoded in filename) and renders its stdout as a menu bar item.
+- `claude-usage-tmux.py` — a tmux status bar segment, invoked via `#()` command substitution from `.tmux.conf`.
+
+Both scripts share `claude_fetch.py` (the Cloudflare TLS workaround for calling claude.ai's API) but otherwise have completely separate config, cache, and session keys.
 
 ## Commands
 
 ```bash
-# Run all tests
-python3 -m pytest tests/
+make test      # run pytest
+make run       # run the plugin script directly (prints SwiftBar-formatted stdout)
+make install   # copy plugin to ~/Library/Application Support/SwiftBar/Plugins/
+```
 
-# Run a single test
-python3 -m pytest tests/test_claude_usage.py::test_fetch_usage_returns_normalized_data -v
-
-# Run the plugin locally (renders menu bar output to stdout)
-python3 claude-usage.60s.py
-
-# Install the plugin to SwiftBar
-cp claude-usage.60s.py ~/Library/Application\ Support/SwiftBar/Plugins/claude-usage.60s.py
-
-# Force-recompile the Swift fetch binary (delete it so _ensure_fetch_binary() rebuilds)
-rm -f ~/.config/claude-usage/fetch
+Run a single test:
+```bash
+python3 -m pytest tests/test_claude_usage.py::test_format_menu_bar_normal
 ```
 
 ## Architecture
 
-**Single-file plugin:** All logic lives in `claude-usage.60s.py`. The filename encodes the SwiftBar refresh interval (`60s`). There is no package, no build step, no pip dependencies — stdlib only.
+### Shared: `claude_fetch.py`
 
-**Swift binary for HTTP:** Cloudflare blocks Python `urllib` and `curl` to `claude.ai` (TLS fingerprinting). The plugin compiles a Swift binary (`~/.config/claude-usage/fetch`) on first run using `swiftc`. `_ensure_fetch_binary()` writes the embedded `SWIFT_SOURCE` to a temp file, compiles it, then deletes the source. The binary reads `SESSION_KEY` from the environment, calls the claude.ai API using `URLSession` (Safari's TLS stack), and outputs normalized JSON to stdout.
+Both scripts import `fetch_usage(session_key, binary_path)` from this module. It holds `SWIFT_SOURCE` (an embedded Swift program using `URLSession` — Cloudflare blocks Python `urllib`/`curl` via TLS fingerprinting, but not Safari's TLS stack) and `_ensure_fetch_binary(binary_path)`, which compiles it via `swiftc` on first use. Each caller passes its own `binary_path` and ends up with its own compiled copy — no shared runtime state.
 
-**API flow (inside the Swift binary):**
-1. `GET https://claude.ai/api/organizations` → get org UUID (cookie auth: `sessionKey=...`)
-2. `GET https://claude.ai/api/organizations/{orgId}/usage` → `five_hour.utilization`, `five_hour.resets_at`, `seven_day.utilization`, `seven_day.resets_at`
+### `claude-usage.60s.py` (SwiftBar menu bar plugin)
 
-**Cache:** `~/.cache/claude-usage/result.json` stores the last successful API response with a timestamp. The plugin skips the API call if cache age < `config.interval_s`. On API failure it falls back to stale cache.
+No dependencies beyond the Python stdlib (plus `claude_fetch`).
 
-**Settings dispatch:** SwiftBar menu items use `bash="{script_path}" param1=<action>` to re-invoke the script with an action name. `main()` checks `sys.argv[1]` against `ACTIONS` dict and calls the matching handler, which opens an `osascript` dialog, validates input, and writes to `config.json`.
+**Runtime paths:**
+- Config: `~/.config/claude-usage/config.json` — session key, refresh interval, alert threshold
+- Cache: `~/.cache/claude-usage/result.json` — last API response with timestamp
+- History: `~/.cache/claude-usage/history.json` — rolling window of `session_pct` readings used to compute ETA
+- Fetch binary: `~/.config/claude-usage/fetch` — compiled on first run via `claude_fetch._ensure_fetch_binary`
 
-**Runtime files:**
+**Data flow:**
+1. SwiftBar executes the script every 60s
+2. If cache is fresh (age < `interval_s`), render cached data — no network call
+3. If stale, call `claude_fetch.fetch_usage()` (which calls `claude.ai/api/organizations` then `.../usage`) and write new cache + append to history
+4. On fetch failure, render stale cache with a "last updated Xm ago" warning
+5. Print line 1 as the menu bar title; everything after `---` becomes the dropdown
 
-| Path | Purpose |
-|------|---------|
-| `~/.config/claude-usage/config.json` | `session_key`, `interval_s` (default 60), `alert_pct` (default 80) |
-| `~/.cache/claude-usage/result.json` | Cached API response + timestamp |
-| `~/.config/claude-usage/fetch` | Compiled Swift binary (auto-built on first run) |
+**Key functions:**
+- `calc_eta_minutes()` — linear rate from the 15-minute history window to estimate time to 100%
+- `format_eta_line()` — suppresses ETA if it would land after the session reset time
+- `format_dropdown()` — builds the full SwiftBar dropdown text including settings menu items
+- `handle_set_*()` — action handlers dispatched from SwiftBar menu items via `sys.argv[1]`
 
-## Tests
+**Tests** import the module dynamically from its `.py` filename path (`importlib.util.spec_from_file_location`) since it contains a dot in the name. Tests use `tempfile.TemporaryDirectory` for isolation and `unittest.mock.patch` for `subprocess.run` and `run_osascript_dialog`.
 
-`tests/test_claude_usage.py` loads the plugin via `importlib.util` (needed because the filename contains dots). All 23 tests use only stdlib + pytest — no external dependencies. Fetch tests mock `subprocess.run` and `_ensure_fetch_binary` — do not mock `urllib`.
+### `claude-usage-tmux.py` (tmux status bar segment)
+
+Fully independent of the SwiftBar plugin — separate config, cache, session key, and compiled fetch binary. No history/ETA tracking; prints a single status line, no dropdown.
+
+**Runtime paths:**
+- Config: `~/.config/claude-usage-tmux/config.json` — session key, refresh interval, alert threshold (same schema as the SwiftBar config, but a separate file — edit by hand, no setup dialog)
+- Cache: `~/.cache/claude-usage-tmux/result.json`
+- Fetch binary: `~/.config/claude-usage-tmux/fetch`
+
+**Output:**
+
+| State | Output |
+|---|---|
+| Normal | `Claude 39%` |
+| `session_pct >= alert_pct` | `#[fg=red]Claude ⚠️ 85%#[default]` (tmux re-parses `#[...]` in `#()` output) |
+| No session key configured | `Claude ⚙ setup` |
+| Fetch fails, no cache | `Claude ?` |
+
+**Setup:**
+1. Get your session key the same way as for the SwiftBar plugin: open claude.ai → DevTools → Application → Cookies → claude.ai → copy `sessionKey`
+2. Create `~/.config/claude-usage-tmux/config.json`:
+   ```json
+   {
+     "session_key": "sk-ant-sid01-...",
+     "interval_s": 60,
+     "alert_pct": 80
+   }
+   ```
+3. Add to `.tmux.conf`:
+   ```tmux
+   set -g status-right '#(python3 /absolute/path/to/repo/claude-usage-tmux.py)'
+   set -g status-interval 30
+   ```
+
+**Tests** use the same `importlib` dynamic-loading pattern as `claude-usage.60s.py` (dashes in the filename).
